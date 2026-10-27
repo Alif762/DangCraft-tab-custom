@@ -1,0 +1,4 @@
+name: DangTab
+version: 1.0.0
+main: my.dangtab.DangTab
+api-version: "1.20"
