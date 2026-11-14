@@ -10,15 +10,19 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.SortedMap;
 
 public class DangTab extends JavaPlugin implements Listener {
 
     private static final String FOOTER =
             "\n\u00a79/help | /discord | /rules\n";
+    private static final String TEAM_PREFIX = "dt";
 
     private Method unlist;
     private Method list;
@@ -45,6 +49,12 @@ public class DangTab extends JavaPlugin implements Listener {
             for (Player t : Bukkit.getOnlinePlayers()) setListed(v, t, true);
             v.setPlayerListName(null);
             v.setPlayerListHeaderFooter("", "");
+            try {
+                for (Team t : v.getScoreboard().getTeams()) {
+                    if (t.getName().startsWith(TEAM_PREFIX)) t.unregister();
+                }
+            } catch (Throwable ignored) {
+            }
         }
     }
 
@@ -60,9 +70,84 @@ public class DangTab extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTaskLater(this, this::refreshAll, 2L);
     }
 
-    // Ambil rank (prefix) dari LuckPerms melalui Vault
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    // ---------- Data prefix dari LuckPerms ----------
+    private Object luckMeta(Player p) {
+        try {
+            Class<?> provider = Class.forName("net.luckperms.api.LuckPermsProvider");
+            Object lp = provider.getMethod("get").invoke(null);
+
+            Class<?> lpClass = Class.forName("net.luckperms.api.LuckPerms");
+            Object adapter = lpClass.getMethod("getPlayerAdapter", Class.class).invoke(lp, Player.class);
+
+            Class<?> adapterClass = Class.forName("net.luckperms.api.platform.PlayerAdapter");
+            Object user = adapterClass.getMethod("getUser", Object.class).invoke(adapter, p);
+
+            Class<?> holder = Class.forName("net.luckperms.api.model.PermissionHolder");
+            Object cached = holder.getMethod("getCachedData").invoke(user);
+
+            Class<?> cachedClass = Class.forName("net.luckperms.api.cacheddata.CachedDataManager");
+            return cachedClass.getMethod("getMetaData").invoke(cached);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    // Nombor keutamaan prefix (nombor dalam "meta setprefix <nombor>")
+    private int priorityOf(Player p) {
+        try {
+            Object meta = luckMeta(p);
+            if (meta == null) return 0;
+            Class<?> metaClass = Class.forName("net.luckperms.api.cacheddata.CachedMetaData");
+            Object map = metaClass.getMethod("getPrefixes").invoke(meta);
+            if (map instanceof SortedMap<?, ?> sm && !sm.isEmpty()) {
+                Object first = sm.firstKey();
+                return ((Number) first).intValue();
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0;
+    }
+
+    private String luckPermsPrefix(Player p) {
+        try {
+            Object meta = luckMeta(p);
+            if (meta == null) return "";
+            Class<?> metaClass = Class.forName("net.luckperms.api.cacheddata.CachedMetaData");
+            Object prefix = metaClass.getMethod("getPrefix").invoke(meta);
+            return prefix == null ? "" : prefix.toString();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    // ---------- Susunan dalam tab: nombor tinggi di atas ----------
+    private void applyOrder(Player viewer, Player target) {
+        try {
+            Scoreboard sb = viewer.getScoreboard();
+            int pr = Math.max(0, Math.min(priorityOf(target), 9999));
+            // Nama team disusun ikut abjad, jadi nombor besar jadi nama kecil (atas)
+            String teamName = TEAM_PREFIX + String.format("%04d", 9999 - pr);
+            Team team = sb.getTeam(teamName);
+            if (team == null) team = sb.registerNewTeam(teamName);
+
+            String entry = target.getName();
+            Team current = sb.getEntryTeam(entry);
+            if (current != null && current.equals(team)) return;
+            team.addEntry(entry);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ---------- Prefix: LuckPerms dulu, kalau gagal guna Vault ----------
     private String prefixOf(Player p) {
+        String r = luckPermsPrefix(p);
+        if (r == null || r.isEmpty()) r = vaultPrefix(p);
+        if (r == null) return "";
+        return ChatColor.translateAlternateColorCodes('&', r);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private String vaultPrefix(Player p) {
         try {
             if (chat == null) {
                 Class c = Class.forName("net.milkbowl.vault.chat.Chat");
@@ -72,7 +157,7 @@ public class DangTab extends JavaPlugin implements Listener {
                 getPrefix = c.getMethod("getPlayerPrefix", Player.class);
             }
             Object r = getPrefix.invoke(chat, p);
-            return r == null ? "" : ChatColor.translateAlternateColorCodes('&', r.toString());
+            return r == null ? "" : r.toString();
         } catch (Throwable t) {
             return "";
         }
@@ -122,12 +207,12 @@ public class DangTab extends JavaPlugin implements Listener {
             p.setPlayerListHeaderFooter(header, FOOTER);
         }
 
-        // Sembunyi pemain vanish daripada pemain biasa, staff masih nampak
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             for (Player target : Bukkit.getOnlinePlayers()) {
+                applyOrder(viewer, target);
                 boolean hide = vanished.contains(target) && !viewer.isOp();
                 setListed(viewer, target, !hide);
             }
         }
     }
-}
+                }
