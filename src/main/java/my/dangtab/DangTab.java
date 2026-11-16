@@ -36,10 +36,10 @@ public class DangTab extends JavaPlugin implements Listener {
             unlist = Player.class.getMethod("unlistPlayer", Player.class);
             list = Player.class.getMethod("listPlayer", Player.class);
         } catch (Throwable t) {
-            getLogger().warning("Server ini tak sokong sembunyi nama dalam tab.");
+            getLogger().warning("This server can't hide names from the tab list.");
         }
         Bukkit.getPluginManager().registerEvents(this, this);
-        // Refresh setiap 1 saat (20 tick)
+        // Refresh every 1 second (20 ticks)
         Bukkit.getScheduler().runTaskTimer(this, this::refreshAll, 20L, 20L);
     }
 
@@ -70,7 +70,7 @@ public class DangTab extends JavaPlugin implements Listener {
         Bukkit.getScheduler().runTaskLater(this, this::refreshAll, 2L);
     }
 
-    // ---------- Data prefix dari LuckPerms ----------
+    // ---------- LuckPerms data ----------
     private Object luckMeta(Player p) {
         try {
             Class<?> provider = Class.forName("net.luckperms.api.LuckPermsProvider");
@@ -92,7 +92,7 @@ public class DangTab extends JavaPlugin implements Listener {
         }
     }
 
-    // Nombor keutamaan prefix (nombor dalam "meta setprefix <nombor>")
+    // Prefix priority (the number in "meta setprefix <number>")
     private int priorityOf(Player p) {
         try {
             Object meta = luckMeta(p);
@@ -100,8 +100,7 @@ public class DangTab extends JavaPlugin implements Listener {
             Class<?> metaClass = Class.forName("net.luckperms.api.cacheddata.CachedMetaData");
             Object map = metaClass.getMethod("getPrefixes").invoke(meta);
             if (map instanceof SortedMap<?, ?> sm && !sm.isEmpty()) {
-                Object first = sm.firstKey();
-                return ((Number) first).intValue();
+                return ((Number) sm.firstKey()).intValue();
             }
         } catch (Throwable ignored) {
         }
@@ -120,25 +119,7 @@ public class DangTab extends JavaPlugin implements Listener {
         }
     }
 
-    // ---------- Susunan dalam tab: nombor tinggi di atas ----------
-    private void applyOrder(Player viewer, Player target) {
-        try {
-            Scoreboard sb = viewer.getScoreboard();
-            int pr = Math.max(0, Math.min(priorityOf(target), 9999));
-            // Nama team disusun ikut abjad, jadi nombor besar jadi nama kecil (atas)
-            String teamName = TEAM_PREFIX + String.format("%04d", 9999 - pr);
-            Team team = sb.getTeam(teamName);
-            if (team == null) team = sb.registerNewTeam(teamName);
-
-            String entry = target.getName();
-            Team current = sb.getEntryTeam(entry);
-            if (current != null && current.equals(team)) return;
-            team.addEntry(entry);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    // ---------- Prefix: LuckPerms dulu, kalau gagal guna Vault ----------
+    // Rank prefix: LuckPerms first, Vault as a fallback
     private String prefixOf(Player p) {
         String r = luckPermsPrefix(p);
         if (r == null || r.isEmpty()) r = vaultPrefix(p);
@@ -163,7 +144,31 @@ public class DangTab extends JavaPlugin implements Listener {
         }
     }
 
-    // VanishLite guna efek invisibility. Hanya staff (OP) yang dikira vanish.
+    // ---------- Tab order + rank above the head ----------
+    // Higher prefix priority = higher in the tab list. The team prefix is the rank
+    // shown above the player's head.
+    private void applyTeam(Player viewer, Player target, String rank) {
+        try {
+            Scoreboard sb = viewer.getScoreboard();
+            int pr = Math.max(0, Math.min(priorityOf(target), 9999));
+            String hash = String.format("%04x", Math.abs(rank.hashCode()) % 65536);
+            String teamName = TEAM_PREFIX + String.format("%04d", 9999 - pr) + hash;
+
+            Team team = sb.getTeam(teamName);
+            if (team == null) team = sb.registerNewTeam(teamName);
+
+            String wanted = rank.isEmpty() ? "" : rank + "\u00a7r";
+            if (!wanted.equals(team.getPrefix())) team.setPrefix(wanted);
+
+            String entry = target.getName();
+            Team current = sb.getEntryTeam(entry);
+            if (current != null && current.equals(team)) return;
+            team.addEntry(entry);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // VanishLite uses the invisibility effect. Only staff (OP) count as vanished.
     private boolean isVanished(Player p) {
         return p.isOp() && p.hasPotionEffect(PotionEffectType.INVISIBILITY);
     }
@@ -209,10 +214,10 @@ public class DangTab extends JavaPlugin implements Listener {
 
         for (Player viewer : Bukkit.getOnlinePlayers()) {
             for (Player target : Bukkit.getOnlinePlayers()) {
-                applyOrder(viewer, target);
+                applyTeam(viewer, target, prefixOf(target));
                 boolean hide = vanished.contains(target) && !viewer.isOp();
                 setListed(viewer, target, !hide);
             }
         }
     }
-                }
+    }
