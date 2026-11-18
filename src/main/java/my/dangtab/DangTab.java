@@ -119,12 +119,37 @@ public class DangTab extends JavaPlugin implements Listener {
         }
     }
 
+    // Tier text from LuckPerms meta key "tier", for example "&6[HT4]"
+    private String tierOf(Player p) {
+        try {
+            Object meta = luckMeta(p);
+            if (meta == null) return "";
+            Class<?> metaClass = Class.forName("net.luckperms.api.cacheddata.CachedMetaData");
+            Object v = metaClass.getMethod("getMetaValue", String.class).invoke(meta, "tier");
+            return v == null ? "" : v.toString().trim();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     // Rank prefix: LuckPerms first, Vault as a fallback
-    private String prefixOf(Player p) {
+    private String rankOf(Player p) {
         String r = luckPermsPrefix(p);
         if (r == null || r.isEmpty()) r = vaultPrefix(p);
         if (r == null) return "";
-        return ChatColor.translateAlternateColorCodes('&', r);
+        return r;
+    }
+
+    // Full prefix = rank + tier, for example "[Member] [HT4] "
+    private String prefixOf(Player p) {
+        String rank = rankOf(p);
+        String tier = tierOf(p);
+        String full = rank;
+        if (!tier.isEmpty()) {
+            if (!rank.isEmpty() && !rank.endsWith(" ")) full += " ";
+            full += tier + " ";
+        }
+        return ChatColor.translateAlternateColorCodes('&', full);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -144,20 +169,20 @@ public class DangTab extends JavaPlugin implements Listener {
         }
     }
 
-    // ---------- Tab order + rank above the head ----------
-    // Higher prefix priority = higher in the tab list. The team prefix is the rank
-    // shown above the player's head.
-    private void applyTeam(Player viewer, Player target, String rank) {
+    // ---------- Tab order + prefix above the head ----------
+    // Higher prefix priority = higher in the tab list. The team prefix is what
+    // shows above the player's head.
+    private void applyTeam(Player viewer, Player target, String prefix) {
         try {
             Scoreboard sb = viewer.getScoreboard();
             int pr = Math.max(0, Math.min(priorityOf(target), 9999));
-            String hash = String.format("%04x", Math.abs(rank.hashCode()) % 65536);
+            String hash = String.format("%04x", Math.abs(prefix.hashCode()) % 65536);
             String teamName = TEAM_PREFIX + String.format("%04d", 9999 - pr) + hash;
 
             Team team = sb.getTeam(teamName);
             if (team == null) team = sb.registerNewTeam(teamName);
 
-            String wanted = rank.isEmpty() ? "" : rank + "\u00a7r";
+            String wanted = prefix.isEmpty() ? "" : prefix + "\u00a7r";
             if (!wanted.equals(team.getPrefix())) team.setPrefix(wanted);
 
             String entry = target.getName();
@@ -220,4 +245,4 @@ public class DangTab extends JavaPlugin implements Listener {
             }
         }
     }
-    }
+        }
